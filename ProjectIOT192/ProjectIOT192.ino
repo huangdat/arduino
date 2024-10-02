@@ -1,19 +1,17 @@
 // Group 3 - SE1805
 
-/* Đấu nối:
+/* pins:
  + RFID:
-  -13: nối chân SCK của RFID      
-  -12: nối chân MISO của RFID
-  -11: nối chân MOSI của RFID      
-  -10: nối chân SS(DSA)của RFID  
-  -9: nối chân RST của RFID   
- + Loa BUZZER:
-  -A0: nối chân Anot của loa   
- + Động cơ Servo:
-  -5: nối chân tín hiệu của động cơ Servo
+  -13: SCK for RFID      
+  -12: MISO for RFID
+  -11: MOSI for RFID      
+  -10: SS(DSA) for RFID  
+  -9: RST for RFID      
+ + Servo:
+  -5: Servo terminal
  */
 
-//Khai báo thư viện
+//libraries
 
 #include <SPI.h>
 #include <MFRC522.h>
@@ -21,79 +19,85 @@
 #include <LiquidCrystal_I2C.h>
 #include <IRremote.hpp>
 
-const int RECV_PIN = 7;
 
-//Khai báo các chân kết nối của Arduino với các linh kiện
+//Define pins
 
+#define RECV_PIN 7
 #define SS_PIN 10
 #define RST_PIN 9
-// #define IN_BTN 7
-// #define OUT_BTN 8
 #define SERVO_PIN 5
-#define BUZZER_PIN 8
+#define LED_PIN 8
 
-//Khởi tạo các đối tượng (instances) cho các module
+//Create objects for servo, lcd, and card reader
 
 MFRC522 mfrc522(SS_PIN, RST_PIN);    // Tạo đối tượng cho đọc thẻ RFID
 Servo servo;                         // Tạo đối tượng cho Servo
 LiquidCrystal_I2C lcd(0x27, 16, 2);  // I2C address 0x27, 16 column and 2 rows
 
-int availableSlots = 1;  // Số lượng chỗ đỗ trống ban đầu
-int maxSlot = 3;
-String parkedRFIDs[3];   // Mảng để lưu trữ thông tin về các thẻ RFID đã đỗ
+int availableSlots = 1;   // Initial free slots
+int maxSlot = 3;          // Maximum free slots
+String parkedRFIDs[3];    // Store the ID of parked cars
 
-// Mảng chứa các mã thẻ RFID hợp lệ
-String validRFIDs[] = { "73c9de34", "53412914" };  // Thay đổi các mã thẻ tùy ý
-
-// Thêm biến để theo dõi thời gian còi kêu
-unsigned long buzzerStartTime = 0;
-const unsigned long buzzerDuration = 5000;  // Thời gian kêu còi: 5 giây
+// Store valid IDs
+String validRFIDs[] = { "73c9de34", "53412914" };  // Add more IDs if you want 
 
 void setup() {
   Serial.begin(9600);
-  SPI.begin();         // Khởi tạo bus SPI
-  mfrc522.PCD_Init();  // Khởi tạo đọc thẻ RFID
+  SPI.begin();         // Create SPI bus
+  mfrc522.PCD_Init();  // Create RFID reader
 
-  servo.attach(SERVO_PIN);
-  servo.write(0);  // Đóng Servo ban đầu
+  servo.attach(SERVO_PIN); // Add servo
+  servo.write(0);  // Set initial state to close
 
-  pinMode(BUZZER_PIN, OUTPUT);
-  IrReceiver.begin(RECV_PIN);
+  pinMode(LED_PIN, OUTPUT); // Add LED pins
+  IrReceiver.begin(RECV_PIN); // Add IR receiver
 
-  lcd.init();  // initialize the lcd
+  lcd.init();  // Initialize the lcd
   lcd.backlight();
 
-  lcd.print("Smart Parking");
-  Serial.println("Smart Parking");  // In ra Serial Monitor
-  lcd.setCursor(0, 1);
-  lcd.print("Available: " + String(availableSlots));
-  Serial.println("Available: " + String(availableSlots));  // In ra Serial Monitor
+  lcd.print("Smart Parking"); // Print to LCD
+  Serial.println("Smart Parking");  // Print to Serial Monitor
+  lcd.setCursor(0, 1); // Set cursor
+  lcd.print("Available: " + String(availableSlots)); // Print available slots
+  Serial.println("Available: " + String(availableSlots));  // Print to Serial Monitor
 }
 
 void loop() {
+  // If receive signal from IR
   if (IrReceiver.decode()) {
+    // Decode the command code
     int command = IrReceiver.decodedIRData.command;
+    // Print to Serial for debugs
     Serial.println(command);
+    // If remote button is 1 and there are still available slots
     if (command == 12 && availableSlots > 0) {
+      // Let the cars go in and print some information to the LCD
       lcd.clear();
       goIn();
-    } else if (command == 24 && availableSlots < maxSlot) {
+    } 
+    // If the remote button is 2 and there are still cars in the parking
+    else if (command == 24 && availableSlots < maxSlot) {
+      // Let the cars go out and print some information to the LCD
       lcd.clear();
       goOut();
     }
+    // Resume the remote
     IrReceiver.resume();
+    // Reset LCD screen
     resetDisplay();
   }
-  // Kiểm tra nếu có thẻ RFID mới được đưa vào
+  // If a RFID card is detected
   if (mfrc522.PICC_IsNewCardPresent() && mfrc522.PICC_ReadCardSerial()) {
-    String rfid = readRFID();  // Đọc mã RFID từ thẻ
+    String rfid = readRFID();  // Read the ID
 
-    if (isValidRFID(rfid))  // Kiểm tra xem mã thẻ có hợp lệ không
-    {
+    if (isValidRFID(rfid))  // check validity
+    { 
+      // Print to LCD
       lcd.clear();
       lcd.print("RFID: " + rfid);
-      Serial.println("RFID: " + rfid);  // In ra Serial Monitor
+      Serial.println("RFID: " + rfid);  // Print to Serial Monitor
 
+      // Check if this car is already parked
       bool isParkedCar = false;
       for (int i = 0; i < 3; i++) {
         if (rfid == parkedRFIDs[i]) {
@@ -102,68 +106,86 @@ void loop() {
         }
       }
 
+      // If it is parked (i.e. go out from inside)
       if (isParkedCar) {
+        // Open the entrance and display good bye message
         goOut();
+        // Remove ID from parked list
         removeParkedRFID(rfid);
-      } else if (availableSlots > 0) {
+      }
+      // If it is from outside and there are still free slots 
+      else if (availableSlots > 0) {
+        // Open the entrance and display welcome message
         goIn();
+        // Add ID to list of parked car
         addParkedRFID(rfid);
-      } else {
+      } 
+      // If all slots are filled
+      else {
+        // Print full slot message
         lcd.setCursor(3, 1);
         lcd.print("Full Slot");
-        Serial.println("Full Slot");  // In ra Serial Monitor
+        Serial.println("Full Slot");  // Print to Serial Monitor
+        // Blink the LED
         for (int i = 0; i < 5; i++) {
-          digitalWrite(BUZZER_PIN, HIGH);
+          digitalWrite(LED_PIN, HIGH);
           delay(250);
-          digitalWrite(BUZZER_PIN, LOW);
+          digitalWrite(LED_PIN, LOW);
           delay(250);
         }
       }
-    } else {
+    }
+    // If the ID is not valid 
+    else {
+      // Print invalid messgae
       lcd.clear();
       lcd.print("Invalid RFID!");
-      Serial.println("Invalid RFID!");  // In ra Serial Monitor
+      Serial.println("Invalid RFID!");  // Print to Serial Monitor
+      // Print ID to Serial for debug
       Serial.println(rfid);
+      // Blink the LED
       for (int i = 0; i < 5; i++) {
-        digitalWrite(BUZZER_PIN, HIGH);
+        digitalWrite(LED_PIN, HIGH);
         delay(250);
-        digitalWrite(BUZZER_PIN, LOW);
+        digitalWrite(LED_PIN, LOW);
         delay(250);
       }
     }
+    // Reset the lcd
     resetDisplay();
-
-    // if (isBuzzerOn()) {
-    //   if (millis() - buzzerStartTime >= buzzerDuration) {
-    //     stopBuzzer();
-    //   }
-    // }
-    mfrc522.PICC_HaltA();  // Dừng truyền thẻ RFID
   }
 }
 
+// Read the ID
 String readRFID() {
+  // Initialize empty string
   String rfid = "";
+  // Read and concat each byte of the ID
   for (byte i = 0; i < mfrc522.uid.size; i++) {
     rfid.concat(String(mfrc522.uid.uidByte[i] < 0x10 ? "0" : ""));
     rfid.concat(String(mfrc522.uid.uidByte[i], HEX));
   }
-  mfrc522.PICC_HaltA();
+  // Return the ID
   return rfid;
 }
 
+// Check ID validity
 bool isValidRFID(String rfid)  // Hàm kiểm tra xem mã thẻ có hợp lệ không
 {
+  // Compare each string, if match return string
   for (int i = 0; i < sizeof(validRFIDs) / sizeof(validRFIDs[0]); i++) {
     if (rfid == validRFIDs[i]) {
       return true;
     }
   }
+  // Else false
   return false;
 }
 
+// Add ID to parked array
 void addParkedRFID(String rfid) {
   for (int i = 0; i < 3; i++) {
+    // find a free slot, if availbale then add the ID
     if (parkedRFIDs[i] == "") {
       parkedRFIDs[i] = rfid;
       break;
@@ -171,7 +193,9 @@ void addParkedRFID(String rfid) {
   }
 }
 
+// Remove ID from parked array
 void removeParkedRFID(String rfid) {
+  // If a match ID is found, turn it to blank string
   for (int i = 0; i < 3; i++) {
     if (parkedRFIDs[i] == rfid) {
       parkedRFIDs[i] = "";
@@ -180,59 +204,43 @@ void removeParkedRFID(String rfid) {
   }
 }
 
-void buzzBuzzer() {
-  digitalWrite(BUZZER_PIN, HIGH);
-  delay(3000);
-  digitalWrite(BUZZER_PIN, LOW);
-}
-
+// Open and close the entrace
 void openServo() {
-  servo.write(90);  // Open the servo
-  digitalWrite(BUZZER_PIN, HIGH);
-  delay(5000);
-  digitalWrite(BUZZER_PIN, LOW);
-  servo.write(0);  // Close the servo
+  servo.write(90);  // Turn the servo up
+  digitalWrite(LED_PIN, HIGH); // Start the LED
+  delay(5000); // Wait 5 seconds
+  digitalWrite(LED_PIN, LOW); // Stop the LED
+  servo.write(0);  // Turn the servo down
 }
 
+// When the user go out of the parking
 void goOut() {
-  lcd.print("See You Again!");
-  Serial.println("See You Again!");  // In ra Serial Monitor
-  lcd.setCursor(1, 1);
-  openServo();
+  // Display good bye message
   lcd.clear();
-  lcd.print("Available: " + String(++availableSlots));
-  Serial.println("Available: " + String(availableSlots));  // In ra Serial Monitor
+  lcd.print("See You Again!");
+  Serial.println("See You Again!");  // Print to Serial Monitor
+  lcd.setCursor(1, 1);
+  // open the entrance
+  openServo();
 }
 
 void goIn() {
-  Serial.println("Welcome!");  // In ra Serial Monitor
+  Serial.println("Welcome!");  // Print to Serial Monitor
+  // Display welcome message
   lcd.setCursor(4, 1);
   lcd.print("Welcome!");
+  // open the entrance
   openServo();
-  lcd.clear();
-  lcd.print("Available: " + String(--availableSlots));
-  Serial.println("Available: " + String(availableSlots));  // In ra Serial Monitor
 }
 
+// Reset display
 void resetDisplay() {
+  // Print to lcd
   lcd.clear();
   lcd.print("Smart Parking");
-  Serial.println("Smart Parking");  // In ra Serial Monitor
+  Serial.println("Smart Parking");  // Print to Serial Monitor
   lcd.setCursor(0, 1);
+  // Print available slots
   lcd.print("Available: " + String(availableSlots));
-  Serial.println("Available: " + String(availableSlots));  // In ra Serial Monitor
+  Serial.println("Available: " + String(availableSlots));  // Print to Serial Monitor
 }
-
-// void startBuzzer() {
-//   digitalWrite(BUZZER_PIN, HIGH);
-//   buzzerStartTime = millis();
-// }
-
-// void stopBuzzer() {
-//   digitalWrite(BUZZER_PIN, LOW);
-//   buzzerStartTime = 0;
-// }
-
-// bool isBuzzerOn() {
-//   return buzzerStartTime > 0;
-// }
