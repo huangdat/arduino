@@ -34,31 +34,31 @@ MFRC522 mfrc522(SS_PIN, RST_PIN);    // Tạo đối tượng cho đọc thẻ R
 Servo servo;                         // Tạo đối tượng cho Servo
 LiquidCrystal_I2C lcd(0x27, 16, 2);  // I2C address 0x27, 16 column and 2 rows
 
-int availableSlots = 1;   // Initial free slots
-int maxSlot = 3;          // Maximum free slots
-String parkedRFIDs[3];    // Store the ID of parked cars
+int availableSlots = 1;  // Initial free slots
+int maxSlot = 3;         // Maximum free slots
+String parkedRFIDs[3];   // Store the ID of parked cars
 
 // Store valid IDs
-String validRFIDs[] = { "73c9de34", "53412914" };  // Add more IDs if you want 
+String validRFIDs[] = { "73c9de34", "53412914" };  // Add more IDs if you want
 
 void setup() {
   Serial.begin(9600);
   SPI.begin();         // Create SPI bus
   mfrc522.PCD_Init();  // Create RFID reader
 
-  servo.attach(SERVO_PIN); // Add servo
-  servo.write(0);  // Set initial state to close
+  servo.attach(SERVO_PIN);  // Add servo
+  servo.write(0);           // Set initial state to close
 
-  pinMode(LED_PIN, OUTPUT); // Add LED pins
-  IrReceiver.begin(RECV_PIN); // Add IR receiver
+  pinMode(LED_PIN, OUTPUT);    // Add LED pins
+  IrReceiver.begin(RECV_PIN);  // Add IR receiver
 
   lcd.init();  // Initialize the lcd
   lcd.backlight();
 
-  lcd.print("Smart Parking"); // Print to LCD
-  Serial.println("Smart Parking");  // Print to Serial Monitor
-  lcd.setCursor(0, 1); // Set cursor
-  lcd.print("Available: " + String(availableSlots)); // Print available slots
+  lcd.print("Smart Parking");                              // Print to LCD
+  Serial.println("Smart Parking");                         // Print to Serial Monitor
+  lcd.setCursor(0, 1);                                     // Set cursor
+  lcd.print("Available: " + String(availableSlots));       // Print available slots
   Serial.println("Available: " + String(availableSlots));  // Print to Serial Monitor
 }
 
@@ -67,31 +67,39 @@ void loop() {
   if (IrReceiver.decode()) {
     // Decode the command code
     int command = IrReceiver.decodedIRData.command;
-    // Print to Serial for debugs
-    Serial.println(command);
     // If remote button is 1 and there are still available slots
     if (command == 12 && availableSlots > 0) {
       // Let the cars go in and print some information to the LCD
       lcd.clear();
       goIn();
-    } 
+      // Reset LCD screen
+      resetDisplay();
+    }
     // If the remote button is 2 and there are still cars in the parking
     else if (command == 24 && availableSlots < maxSlot) {
       // Let the cars go out and print some information to the LCD
       lcd.clear();
       goOut();
+      // Reset LCD screen
+      resetDisplay();
+    } else if (command == 0) {
+      // Resume the remote
+      IrReceiver.resume();
+      return;
     }
+    // Print to Serial for debugs
+    Serial.println(command);
+    // Add delay to avoid double read
+    delay(50);
     // Resume the remote
     IrReceiver.resume();
-    // Reset LCD screen
-    resetDisplay();
   }
   // If a RFID card is detected
   if (mfrc522.PICC_IsNewCardPresent() && mfrc522.PICC_ReadCardSerial()) {
     String rfid = readRFID();  // Read the ID
 
     if (isValidRFID(rfid))  // check validity
-    { 
+    {
       // Print to LCD
       lcd.clear();
       lcd.print("RFID: " + rfid);
@@ -113,13 +121,13 @@ void loop() {
         // Remove ID from parked list
         removeParkedRFID(rfid);
       }
-      // If it is from outside and there are still free slots 
+      // If it is from outside and there are still free slots
       else if (availableSlots > 0) {
         // Open the entrance and display welcome message
         goIn();
         // Add ID to list of parked car
         addParkedRFID(rfid);
-      } 
+      }
       // If all slots are filled
       else {
         // Print full slot message
@@ -135,7 +143,7 @@ void loop() {
         }
       }
     }
-    // If the ID is not valid 
+    // If the ID is not valid
     else {
       // Print invalid messgae
       lcd.clear();
@@ -206,41 +214,42 @@ void removeParkedRFID(String rfid) {
 
 // Open and close the entrace
 void openServo() {
-  servo.write(90);  // Turn the servo up
-  digitalWrite(LED_PIN, HIGH); // Start the LED
-  delay(5000); // Wait 5 seconds
-  digitalWrite(LED_PIN, LOW); // Stop the LED
-  servo.write(0);  // Turn the servo down
+  servo.write(90);              // Turn the servo up
+  digitalWrite(LED_PIN, HIGH);  // Start the LED
+  delay(5000);                  // Wait 5 seconds
+  digitalWrite(LED_PIN, LOW);   // Stop the LED
+  servo.write(0);               // Turn the servo down
 }
 
 // When the user go out of the parking
 void goOut() {
-  // Display good bye message
   lcd.clear();
+  // Display good bye message
   lcd.print("See You Again!");
   Serial.println("See You Again!");  // Print to Serial Monitor
   lcd.setCursor(1, 1);
   // open the entrance
   openServo();
+  lcd.clear();
+  lcd.print("Available: " + String(++availableSlots));
+  Serial.println("Available: " + String(availableSlots));  // Print to Serial Monitor
 }
 
 void goIn() {
   Serial.println("Welcome!");  // Print to Serial Monitor
-  // Display welcome message
   lcd.setCursor(4, 1);
   lcd.print("Welcome!");
-  // open the entrance
   openServo();
+  lcd.clear();
+  lcd.print("Available: " + String(--availableSlots));
+  Serial.println("Available: " + String(availableSlots));  // Print to Serial Monitor
 }
 
-// Reset display
 void resetDisplay() {
-  // Print to lcd
   lcd.clear();
   lcd.print("Smart Parking");
   Serial.println("Smart Parking");  // Print to Serial Monitor
   lcd.setCursor(0, 1);
-  // Print available slots
   lcd.print("Available: " + String(availableSlots));
   Serial.println("Available: " + String(availableSlots));  // Print to Serial Monitor
 }
